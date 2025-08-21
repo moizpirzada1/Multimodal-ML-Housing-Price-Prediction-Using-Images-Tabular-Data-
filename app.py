@@ -1,109 +1,96 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
+import tensorflow as tf
 import joblib
+from huggingface_hub import hf_hub_download
+from tensorflow.keras.preprocessing.image import load_img, img_to_array
 
-# Load models and scaler
-knn = joblib.load("knn_model.pkl")
-nb = joblib.load("nb_model.pkl")
-scaler = joblib.load("scaler.pkl")
+# -------------------------------
+# 1. Load Model & Scaler
+# -------------------------------
+st.title("🏡 Multimodal Housing Price Prediction")
 
-# Load training column names
-with open("X_columns.txt", "r") as f:
-    training_columns = f.read().splitlines()
+# Load model from Hugging Face (compile=False to avoid deserialization errors)
+model_path = hf_hub_download(
+    repo_id="sunnypirzada/multimodal-housing-price",
+    filename="multimodal_house_price.h5"
+)
+model = tf.keras.models.load_model(model_path, compile=False)
 
-# Preprocessing
-def preprocess_input(input_data):
-    binary_cols = ['gender', 'Partner', 'Dependents', 'PhoneService', 'PaperlessBilling']
-    for col in binary_cols:
-        input_data[col] = input_data[col].apply(lambda x: 1 if str(x).lower() in ['yes', 'male'] else 0)
+# Load scaler locally from repo
+try:
+    scaler = joblib.load("scaler.pkl")  # scaler.pkl must be in the same folder as this file
+    st.success("✅ Scaler loaded successfully")
+except Exception as e:
+    scaler = None
+    st.warning(f"⚠️ Scaler not loaded: {e}")
 
-    multi_class_cols = ['MultipleLines', 'InternetService', 'OnlineSecurity', 'OnlineBackup',
-                        'DeviceProtection', 'TechSupport', 'StreamingTV', 'StreamingMovies',
-                        'Contract', 'PaymentMethod']
-    input_data = pd.get_dummies(input_data, columns=multi_class_cols, drop_first=True)
+# -------------------------------
+# 2. Initialize History
+# -------------------------------
+if "history" not in st.session_state:
+    st.session_state.history = []
 
-    for col in training_columns:
-        if col not in input_data.columns:
-            input_data[col] = 0
+# -------------------------------
+# 3. User Inputs
+# -------------------------------
+st.header("Enter House Features")
 
-    input_data = input_data[training_columns]
-    return scaler.transform(input_data)
+bedrooms = st.number_input("Bedrooms", min_value=1, max_value=10, value=3)
+bathrooms = st.number_input("Bathrooms", min_value=1, max_value=10, value=2)
+sqft = st.number_input("Square Feet", min_value=500, max_value=10000, value=2000)
+lot_size = st.number_input("Lot Size", min_value=500, max_value=20000, value=5000)
+age = st.number_input("House Age (years)", min_value=0, max_value=100, value=10)
 
-# Prediction
-def predict(model_choice, input_dict):
-    input_df = pd.DataFrame([input_dict])
-    try:
-        processed_input = preprocess_input(input_df)
-        model = knn if model_choice == "KNN" else nb
-        pred = model.predict(processed_input)[0]
-        return "Churn" if pred == 1 else "No Churn"
-    except Exception as e:
-        return f"❌ Error: {str(e)}"
+tab_data = np.array([[bedrooms, bathrooms, sqft, lot_size, age]])
+if scaler is not None:
+    tab_data = scaler.transform(tab_data)
 
-# App UI
-st.title("📊 Customer Churn Prediction")
-st.write("Predict whether a customer will churn using KNN or Naive Bayes.")
+st.subheader("Upload House Image")
+uploaded_file = st.file_uploader("Choose a house image", type=["jpg", "png", "jpeg"])
 
-# Sidebar for model choice
-model_choice = st.sidebar.selectbox("Choose Model", ["KNN", "Naive Bayes"])
+# -------------------------------
+# 4. Prediction
+# -------------------------------
+if st.button("Predict Price"):
+    if uploaded_file is not None:
+        # Process image
+        img = load_img(uploaded_file, target_size=(128, 128))
+        img_array = img_to_array(img) / 255.0
+        img_array = np.expand_dims(img_array, axis=0)
 
-# Input form
-with st.form("prediction_form"):
-    gender = st.radio("Gender", ["Male", "Female"])
-    senior = st.radio("Senior Citizen", [0, 1])
-    partner = st.radio("Partner", ["Yes", "No"])
-    dependents = st.radio("Dependents", ["Yes", "No"])
-    tenure = st.slider("Tenure (months)", 0, 72, 12)
-    phone = st.radio("Phone Service", ["Yes", "No"])
-    paperless = st.radio("Paperless Billing", ["Yes", "No"])
-    monthly = st.number_input("Monthly Charges", 0.0)
-    total = st.number_input("Total Charges", 0.0)
-    contract = st.selectbox("Contract", ["Month-to-month", "One year", "Two year"])
-    payment = st.selectbox("Payment Method", ["Electronic check", "Mailed check", "Bank transfer (automatic)", "Credit card (automatic)"])
-    internet = st.selectbox("Internet Service", ["DSL", "Fiber optic", "No"])
-    online_sec = st.selectbox("Online Security", ["Yes", "No", "No internet service"])
-    online_bak = st.selectbox("Online Backup", ["Yes", "No", "No internet service"])
-    device_protect = st.selectbox("Device Protection", ["Yes", "No", "No internet service"])
-    tech_supp = st.selectbox("Tech Support", ["Yes", "No", "No internet service"])
-    streaming_tv = st.selectbox("Streaming TV", ["Yes", "No", "No internet service"])
-    streaming_movies = st.selectbox("Streaming Movies", ["Yes", "No", "No internet service"])
-    multiline = st.selectbox("Multiple Lines", ["Yes", "No", "No phone service"])
-    submit = st.form_submit_button("Predict")
+        # Predict
+        pred = model.predict([img_array, tab_data])
+        price = float(pred[0][0])
 
-    if submit:
-        input_dict = {
-            "gender": gender,
-            "SeniorCitizen": senior,
-            "Partner": partner,
-            "Dependents": dependents,
-            "tenure": tenure,
-            "PhoneService": phone,
-            "PaperlessBilling": paperless,
-            "MonthlyCharges": monthly,
-            "TotalCharges": total,
-            "Contract": contract,
-            "PaymentMethod": payment,
-            "InternetService": internet,
-            "OnlineSecurity": online_sec,
-            "OnlineBackup": online_bak,
-            "DeviceProtection": device_protect,
-            "TechSupport": tech_supp,
-            "StreamingTV": streaming_tv,
-            "StreamingMovies": streaming_movies,
-            "MultipleLines": multiline
-        }
+        # Save to history
+        st.session_state.history.append({
+            "Bedrooms": bedrooms,
+            "Bathrooms": bathrooms,
+            "SqFt": sqft,
+            "Lot Size": lot_size,
+            "Age": age,
+            "Predicted Price": price
+        })
 
-        result = predict(model_choice, input_dict)
-        st.success(f"Prediction: {result}")
+        st.success(f"🏠 Estimated Price: ${price:,.2f}")
+    else:
+        st.warning("⚠️ Please upload a house image first.")
 
-        # Store history
-        if "history" not in st.session_state:
-            st.session_state.history = []
-        st.session_state.history.append({**input_dict, "Prediction": result})
+# -------------------------------
+# 5. Show History
+# -------------------------------
+if st.session_state.history:
+    st.header("📜 Prediction History")
+    hist_df = pd.DataFrame(st.session_state.history)
+    st.dataframe(hist_df)
 
-# History
-st.markdown("## 🕘 Prediction History")
-if "history" in st.session_state:
-    st.dataframe(pd.DataFrame(st.session_state.history))
-else:
-    st.info("No predictions made yet.")
+    # Download option
+    csv = hist_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="⬇️ Download History as CSV",
+        data=csv,
+        file_name="prediction_history.csv",
+        mime="text/csv",
+    )
