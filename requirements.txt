@@ -1,9 +1,10 @@
 streamlit
 pandas
 numpy
-tensorflow==2.18.0
+tensorflow
 scikit-learn
 joblib
 huggingface-hub
 pillow
+
 
