@@ -9,6 +9,7 @@ Built with TensorFlow/Keras
 Interactive app built in Streamlit
 Integrated preprocessing (scaler + feature handling)
 Hosted live so anyone can test it!
-👉 Live App: https://lnkd.in/drueeQzJ
+👉 Live App:https://9vjehvtrybapb2csgugfuj.streamlit.app/
 This project was a great opportunity to explore multimodal ML, model fusion, and deployment pipelines.
  Would love to hear your feedback and ideas for improvement 🙌
+
